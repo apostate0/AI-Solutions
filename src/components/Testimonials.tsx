@@ -1,23 +1,33 @@
 import React, { useState, useEffect } from 'react'
+import { supabase, type FeedbackSubmission } from '../lib/supabase'
 
-interface Testimonial {
-  id: number
-  name: string
-  position?: string
-  company?: string
-  feedback: string
-  rating: number
-  created_at: string
-  is_testimonial?: boolean
-  published?: boolean
-  email?: string
-  avatar?: string
-}
 
 const Testimonials: React.FC = () => {
   const [currentTestimonial, setCurrentTestimonial] = useState(0)
+  const [testimonials, setTestimonials] = useState<FeedbackSubmission[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const testimonials: Testimonial[] = []
+  useEffect(() => {
+    fetchTestimonials()
+  }, [])
+
+  const fetchTestimonials = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('feedback_submissions')
+        .select('*')
+        .eq('published', true)
+        .eq('is_testimonial', true)
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      setTestimonials(data || [])
+    } catch (error) {
+      console.error('Error fetching testimonials:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (testimonials.length > 0) {
@@ -63,7 +73,12 @@ const Testimonials: React.FC = () => {
         </div>
 
         <div className="max-w-4xl mx-auto">
-          {testimonials.length === 0 ? (
+          {loading ? (
+            <div className="bg-primary-50 rounded-2xl p-8 md:p-12 text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p className="text-secondary-500">Loading testimonials...</p>
+            </div>
+          ) : testimonials.length === 0 ? (
             <div className="bg-primary-50 rounded-2xl p-8 md:p-12 text-center">
               <div className="text-primary-400 mb-6">
                 <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -87,25 +102,25 @@ const Testimonials: React.FC = () => {
 
               {/* Stars */}
               <div className="flex justify-center mb-6">
-                {renderStars(testimonials[currentTestimonial].rating)}
+                {renderStars(testimonials[currentTestimonial]?.rating || 5)}
               </div>
 
               {/* Content */}
               <blockquote className="text-xl md:text-2xl text-secondary-800 font-medium leading-relaxed mb-8">
-                "{testimonials[currentTestimonial].feedback}"
+                "{testimonials[currentTestimonial]?.feedback}"
               </blockquote>
 
               {/* Author */}
               <div className="flex items-center justify-center space-x-4">
                 <div className="w-12 h-12 bg-primary-600 rounded-full flex items-center justify-center text-white font-bold">
-                  {testimonials[currentTestimonial].name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                  {testimonials[currentTestimonial]?.avatar || testimonials[currentTestimonial]?.name?.charAt(0).toUpperCase() || 'U'}
                 </div>
                 <div className="text-left">
                   <div className="font-semibold text-secondary-900">
-                    {testimonials[currentTestimonial].name}
+                    {testimonials[currentTestimonial]?.name}
                   </div>
                   <div className="text-secondary-600">
-                    {testimonials[currentTestimonial].position}, {testimonials[currentTestimonial].company}
+                    {testimonials[currentTestimonial]?.position || 'Client'} {testimonials[currentTestimonial]?.position && testimonials[currentTestimonial]?.company ? ', ' : ''} {testimonials[currentTestimonial]?.company}
                   </div>
                 </div>
               </div>

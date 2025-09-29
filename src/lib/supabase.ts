@@ -21,7 +21,13 @@ export interface FeedbackSubmission {
   email: string
   rating: number
   feedback: string
+  position?: string
+  company?: string
+  avatar?: string
+  is_testimonial?: boolean
+  published?: boolean
   created_at?: string
+  updated_at?: string
 }
 
 export interface BlogPost {
@@ -58,26 +64,18 @@ export interface Event {
   id?: number
   title: string
   date: string
+  time?: string
   location: string
   description: string
   category: string
   image: string
   attendees: number
+  duration?: string
+  rating?: number
+  satisfaction?: number
   published: boolean
   created_at?: string
   updated_at?: string
 }
 
-export interface Testimonial {
-  id?: number
-  name: string
-  position: string
-  company: string
-  content: string
-  rating: number
-  avatar: string
-  published: boolean
-  created_at?: string
-  updated_at?: string
-}
 

@@ -1,27 +1,44 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { supabase, Event } from '../lib/supabase'
+import SeeMoreModal from './SeeMoreModal'
 
-interface Event {
-  id: number
-  title: string
-  date: string
-  location: string
-  description: string
-  category: string
-  image: string
-  attendees: number
-}
 
 const EventGallery: React.FC = () => {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
   const [selectedCategory, setSelectedCategory] = useState('All')
+  const [events, setEvents] = useState<Event[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showModal, setShowModal] = useState(false)
 
-  const events: Event[] = []
+  useEffect(() => {
+    fetchEvents()
+  }, [])
+
+  const fetchEvents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('published', true)
+        .order('date', { ascending: false })
+      
+      if (error) throw error
+      setEvents(data || [])
+    } catch (error) {
+      console.error('Error fetching events:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const categories = ['All', 'Conference', 'Workshop', 'Roundtable', 'Symposium', 'Competition', 'Showcase', 'Bootcamp', 'Forum']
 
   const filteredEvents = selectedCategory === 'All' 
     ? events 
     : events.filter(event => event.category === selectedCategory)
+  
+  const displayedEvents = filteredEvents.slice(0, 6)
+  const hasMore = filteredEvents.length > 6
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
@@ -89,7 +106,12 @@ const EventGallery: React.FC = () => {
 
         {/* Events Grid */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredEvents.length === 0 ? (
+          {loading ? (
+            <div className="col-span-3 text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+              <p className="text-secondary-500 mt-4">Loading events...</p>
+            </div>
+          ) : filteredEvents.length === 0 ? (
             <div className="col-span-3 text-center py-12">
               <div className="text-secondary-400 mb-4">
                 <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -100,7 +122,7 @@ const EventGallery: React.FC = () => {
               <p className="text-secondary-500">Events will be displayed here once scheduled.</p>
             </div>
           ) : (
-            filteredEvents.map((event) => (
+            displayedEvents.map((event) => (
             <div 
               key={event.id}
               className="bg-white rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300 cursor-pointer group"
@@ -115,7 +137,10 @@ const EventGallery: React.FC = () => {
                   </span>
                 </div>
                 <div className="absolute bottom-4 left-4 text-white">
-                  <div className="text-sm font-medium">{formatDate(event.date)}</div>
+                  <div className="text-sm font-medium">
+                    {formatDate(event.date)}
+                    {event.time && <span className="ml-2">• {event.time}</span>}
+                  </div>
                   <div className="text-xs opacity-90">{event.attendees} attendees</div>
                 </div>
                 {/* Hover overlay */}
@@ -150,10 +175,40 @@ const EventGallery: React.FC = () => {
           )}
         </div>
 
+        {/* See More Button */}
+        {hasMore && (
+          <div className="text-center mt-8">
+            <button
+              onClick={() => setShowModal(true)}
+              className="bg-white text-primary-600 border-2 border-primary-600 hover:bg-primary-600 hover:text-white px-6 py-3 rounded-lg font-semibold transition-colors duration-300"
+            >
+              See More Events ({filteredEvents.length - 6} more)
+            </button>
+          </div>
+        )}
+
         {/* Lightbox Modal */}
         {selectedEvent && (
-          <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl max-w-4xl max-h-[90vh] overflow-y-auto relative">
+          <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-2 sm:p-4">
+            {/* Navigation Buttons - Outside the modal */}
+            <button
+              onClick={() => navigateEvent('prev')}
+              className="absolute left-2 sm:left-8 top-1/2 transform -translate-y-1/2 z-20 w-10 h-10 sm:w-12 sm:h-12 bg-white bg-opacity-20 text-white rounded-full flex items-center justify-center hover:bg-opacity-30 transition-colors backdrop-blur-sm"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button
+              onClick={() => navigateEvent('next')}
+              className="absolute right-2 sm:right-8 top-1/2 transform -translate-y-1/2 z-20 w-10 h-10 sm:w-12 sm:h-12 bg-white bg-opacity-20 text-white rounded-full flex items-center justify-center hover:bg-opacity-30 transition-colors backdrop-blur-sm"
+            >
+              <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+
+            <div className="bg-white rounded-xl w-full max-w-4xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto relative mx-4 sm:mx-0">
               {/* Close Button */}
               <button
                 onClick={closeLightbox}
@@ -164,83 +219,126 @@ const EventGallery: React.FC = () => {
                 </svg>
               </button>
 
-              {/* Navigation Buttons */}
-              <button
-                onClick={() => navigateEvent('prev')}
-                className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10 w-12 h-12 bg-black bg-opacity-50 text-white rounded-full flex items-center justify-center hover:bg-opacity-70 transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-              <button
-                onClick={() => navigateEvent('next')}
-                className="absolute right-4 top-1/2 transform -translate-y-1/2 z-10 w-12 h-12 bg-black bg-opacity-50 text-white rounded-full flex items-center justify-center hover:bg-opacity-70 transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-
               {/* Event Header */}
-              <div className={`${selectedEvent.image} p-8 text-white relative`}>
+              <div className={`${selectedEvent.image} p-4 sm:p-8 text-white relative`}>
                 <div className="max-w-3xl">
-                  <div className="flex items-center space-x-4 mb-4">
-                    <span className="bg-white bg-opacity-20 text-white text-sm font-medium px-3 py-1 rounded-full">
+                  <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mb-4">
+                    <span className="bg-white bg-opacity-20 text-white text-sm font-medium px-3 py-1 rounded-full self-start">
                       {selectedEvent.category}
                     </span>
                     <span className="text-sm">{selectedEvent.attendees} attendees</span>
                   </div>
-                  <h1 className="text-3xl font-bold mb-4">{selectedEvent.title}</h1>
-                  <div className="flex items-center space-x-6 text-sm">
+                  <h1 className="text-2xl sm:text-3xl font-bold mb-4">{selectedEvent.title}</h1>
+                  <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-6 text-sm">
                     <div className="flex items-center">
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
-                      {formatDate(selectedEvent.date)}
+                      <span>
+                        {formatDate(selectedEvent.date)}
+                        {selectedEvent.time && <span className="ml-2">• {selectedEvent.time}</span>}
+                      </span>
                     </div>
                     <div className="flex items-center">
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
-                      {selectedEvent.location}
+                      <span className="truncate">{selectedEvent.location}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
               {/* Event Content */}
-              <div className="p-8">
+              <div className="p-4 sm:p-8">
                 <div className="prose max-w-none">
-                  <p className="text-secondary-700 leading-relaxed text-lg">
+                  <p className="text-secondary-700 leading-relaxed text-base sm:text-lg">
                     {selectedEvent.description}
                   </p>
                 </div>
 
                 {/* Event Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-8 pt-8 border-t border-secondary-200">
+                <div className="grid grid-cols-2 gap-4 sm:gap-6 mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-secondary-200">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-primary-600">{selectedEvent.attendees}</div>
-                    <div className="text-secondary-600 text-sm">Attendees</div>
+                    <div className="text-xl sm:text-2xl font-bold text-primary-600">{selectedEvent.attendees}</div>
+                    <div className="text-secondary-600 text-xs sm:text-sm">Attendees</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-primary-600">4.8</div>
-                    <div className="text-secondary-600 text-sm">Rating</div>
+                    <div className="text-xl sm:text-2xl font-bold text-primary-600">
+                      {selectedEvent.rating ? selectedEvent.rating.toFixed(1) : '4.5'}
+                    </div>
+                    <div className="text-secondary-600 text-xs sm:text-sm">Rating</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-primary-600">95%</div>
-                    <div className="text-secondary-600 text-sm">Satisfaction</div>
+                    <div className="text-xl sm:text-2xl font-bold text-primary-600">
+                      {selectedEvent.satisfaction ? `${selectedEvent.satisfaction}%` : '90%'}
+                    </div>
+                    <div className="text-secondary-600 text-xs sm:text-sm">Satisfaction</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-primary-600">8h</div>
-                    <div className="text-secondary-600 text-sm">Duration</div>
+                    <div className="text-xl sm:text-2xl font-bold text-primary-600">
+                      {selectedEvent.duration || '2h'}
+                    </div>
+                    <div className="text-secondary-600 text-xs sm:text-sm">Duration</div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         )}
+
+        {/* See More Modal */}
+        <SeeMoreModal
+          isOpen={showModal}
+          onClose={() => setShowModal(false)}
+          title="All Events"
+        >
+          <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-6">
+            {filteredEvents.map((event) => (
+              <div 
+                key={event.id}
+                className="bg-white rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300 cursor-pointer group"
+                onClick={() => {
+                  setShowModal(false)
+                  openLightbox(event)
+                }}
+              >
+                {/* Event Image */}
+                <div className={`h-48 ${event.image} relative overflow-hidden`}>
+                  <div className="absolute inset-0 bg-black bg-opacity-40 group-hover:bg-opacity-30 transition-colors duration-300"></div>
+                  <div className="absolute top-4 left-4">
+                    <span className="bg-white bg-opacity-90 text-secondary-800 text-xs font-medium px-2 py-1 rounded">
+                      {event.category}
+                    </span>
+                  </div>
+                  <div className="absolute bottom-4 left-4 text-white">
+                    <div className="text-sm font-medium">
+                      {formatDate(event.date)} • {event.time}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Event Content */}
+                <div className="p-6">
+                  <h3 className="text-lg font-semibold text-secondary-900 mb-2 group-hover:text-primary-600 transition-colors">
+                    {event.title}
+                  </h3>
+                  <div className="flex items-center text-sm text-secondary-500 mb-3">
+                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span className="truncate">{event.location}</span>
+                  </div>
+                  <p className="text-secondary-600 text-sm line-clamp-3">
+                    {event.description}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SeeMoreModal>
       </div>
     </section>
   )

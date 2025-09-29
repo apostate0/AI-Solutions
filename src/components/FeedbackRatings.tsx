@@ -1,15 +1,5 @@
-import React, { useState } from 'react'
-
-interface FeedbackItem {
-  id: number
-  name: string
-  company: string
-  rating: number
-  comment: string
-  date: string
-  service: string
-  avatar: string
-}
+import React, { useState, useEffect } from 'react'
+import { supabase, type FeedbackSubmission } from '../lib/supabase'
 
 const FeedbackRatings: React.FC = () => {
   const [selectedRating, setSelectedRating] = useState(0)
@@ -17,13 +7,54 @@ const FeedbackRatings: React.FC = () => {
   const [newFeedback, setNewFeedback] = useState({
     name: '',
     company: '',
-    service: '',
+    services: [] as string[],
     comment: ''
   })
+  const [isServiceDropdownOpen, setIsServiceDropdownOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [feedbackData, setFeedbackData] = useState<FeedbackSubmission[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showAllReviews, setShowAllReviews] = useState(false)
 
-  const feedbackData: FeedbackItem[] = []
+  useEffect(() => {
+    fetchFeedback()
+  }, [])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.service-dropdown')) {
+        setIsServiceDropdownOpen(false)
+      }
+    }
+
+    if (isServiceDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isServiceDropdownOpen])
+
+  const fetchFeedback = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('feedback_submissions')
+        .select('*')
+        .eq('published', true)
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      setFeedbackData(data || [])
+    } catch (error) {
+      console.error('Error fetching feedback:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const services = [
     "AI Strategy & Consulting",
@@ -34,11 +65,27 @@ const FeedbackRatings: React.FC = () => {
     "Process Automation"
   ]
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
     setNewFeedback(prev => ({
       ...prev,
       [name]: value
+    }))
+  }
+
+  const toggleService = (service: string) => {
+    setNewFeedback(prev => ({
+      ...prev,
+      services: prev.services.includes(service)
+        ? prev.services.filter(s => s !== service)
+        : [...prev.services, service]
+    }))
+  }
+
+  const clearAllServices = () => {
+    setNewFeedback(prev => ({
+      ...prev,
+      services: []
     }))
   }
 
@@ -48,16 +95,37 @@ const FeedbackRatings: React.FC = () => {
       alert('Please select a rating')
       return
     }
+    if (newFeedback.services.length === 0) {
+      alert('Please select at least one service')
+      return
+    }
 
     setIsSubmitting(true)
     
     try {
-      // Simulate form submission (replace with actual Supabase integration later)
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      const feedbackSubmission = {
+        name: newFeedback.name,
+        email: `${newFeedback.name.toLowerCase().replace(/\s+/g, '.')}@example.com`, // Generate email for now
+        rating: selectedRating,
+        feedback: newFeedback.comment,
+        position: 'Client',
+        company: newFeedback.company || 'Not specified',
+        avatar: newFeedback.name.charAt(0).toUpperCase(),
+        is_testimonial: false,
+        published: true // Auto-publish feedback
+      }
+
+      const { error } = await supabase
+        .from('feedback_submissions')
+        .insert([feedbackSubmission])
+
+      if (error) throw error
+
       setSubmitStatus('success')
-      setNewFeedback({ name: '', company: '', service: '', comment: '' })
+      setNewFeedback({ name: '', company: '', services: [], comment: '' })
       setSelectedRating(0)
     } catch (error) {
+      console.error('Error submitting feedback:', error)
       setSubmitStatus('error')
     } finally {
       setIsSubmitting(false)
@@ -105,6 +173,10 @@ const FeedbackRatings: React.FC = () => {
   const ratingCounts = [5, 4, 3, 2, 1].map(rating => 
     feedbackData.filter(item => item.rating === rating).length
   )
+
+  // Show only first 6 reviews initially
+  const displayedReviews = showAllReviews ? feedbackData : feedbackData.slice(0, 6)
+  const hasMoreReviews = feedbackData.length > 6
 
   return (
     <section id="feedback" className="section-padding bg-white">
@@ -199,23 +271,95 @@ const FeedbackRatings: React.FC = () => {
                   />
                 </div>
 
-                <div>
-                  <label htmlFor="feedback-service" className="block text-sm font-medium text-secondary-700 mb-2">
-                    Service Used *
+                <div className="relative service-dropdown">
+                  <label className="block text-sm font-medium text-secondary-700 mb-2">
+                    Services Used *
                   </label>
-                  <select
-                    id="feedback-service"
-                    name="service"
-                    value={newFeedback.service}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full px-3 py-2 border border-secondary-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  >
-                    <option value="">Select a service</option>
-                    {services.map((service) => (
-                      <option key={service} value={service}>{service}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsServiceDropdownOpen(!isServiceDropdownOpen)}
+                      className="w-full px-4 py-3 border border-secondary-300 rounded-lg bg-white text-left focus:ring-2 focus:ring-primary-500 focus:border-transparent flex items-center justify-between"
+                    >
+                      <span className="text-secondary-700">
+                        {newFeedback.services.length === 0 
+                          ? "Select services" 
+                          : `${newFeedback.services.length} service${newFeedback.services.length > 1 ? 's' : ''} selected`
+                        }
+                      </span>
+                      <svg 
+                        className={`w-5 h-5 text-secondary-400 transition-transform ${isServiceDropdownOpen ? 'rotate-180' : ''}`} 
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    
+                    {isServiceDropdownOpen && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-secondary-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                        <div className="p-3 border-b border-secondary-100">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-secondary-700">Choose services</span>
+                            <button
+                              type="button"
+                              onClick={clearAllServices}
+                              className="text-sm text-primary-600 hover:text-primary-700"
+                            >
+                              Clear All
+                            </button>
+                          </div>
+                        </div>
+                        <div className="p-2">
+                          {services.map((service) => (
+                            <label
+                              key={service}
+                              className="flex items-center p-2 hover:bg-secondary-50 rounded cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={newFeedback.services.includes(service)}
+                                onChange={() => toggleService(service)}
+                                className="w-4 h-4 text-primary-600 border-secondary-300 rounded focus:ring-primary-500"
+                              />
+                              <span className="ml-3 text-sm text-secondary-700">{service}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="p-3 border-t border-secondary-100 bg-secondary-50">
+                          <button
+                            type="button"
+                            onClick={() => setIsServiceDropdownOpen(false)}
+                            className="w-full bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Selected Services Display */}
+                  {newFeedback.services.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {newFeedback.services.map((service) => (
+                        <span
+                          key={service}
+                          className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-primary-100 text-primary-800"
+                        >
+                          {service}
+                          <button
+                            type="button"
+                            onClick={() => toggleService(service)}
+                            className="ml-2 text-primary-600 hover:text-primary-800"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -268,7 +412,12 @@ const FeedbackRatings: React.FC = () => {
           {/* Feedback List */}
           <div className="lg:col-span-2">
             <div className="space-y-6">
-              {feedbackData.length === 0 ? (
+              {loading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                  <p className="text-secondary-500">Loading feedback...</p>
+                </div>
+              ) : feedbackData.length === 0 ? (
                 <div className="text-center py-12">
                   <div className="text-secondary-400 mb-4">
                     <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -279,7 +428,8 @@ const FeedbackRatings: React.FC = () => {
                   <p className="text-secondary-500">Client feedback will be displayed here once submitted.</p>
                 </div>
               ) : (
-                feedbackData.map((feedback) => (
+                <>
+                  {displayedReviews.map((feedback) => (
                 <div key={feedback.id} className="bg-white border border-secondary-200 rounded-xl p-6">
                   <div className="flex items-start space-x-4">
                     <div className="w-12 h-12 bg-primary-600 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0">
@@ -295,23 +445,48 @@ const FeedbackRatings: React.FC = () => {
                           <div className="flex items-center space-x-1 mb-1">
                             {renderStars(feedback.rating)}
                           </div>
-                          <p className="text-xs text-secondary-500">{formatDate(feedback.date)}</p>
+                          <p className="text-xs text-secondary-500">{formatDate(feedback.created_at || '')}</p>
                         </div>
                       </div>
                       
                       <div className="mb-3">
                         <span className="bg-primary-100 text-primary-800 text-xs font-medium px-2 py-1 rounded">
-                          {feedback.service}
+                          {feedback.position} at {feedback.company}
                         </span>
                       </div>
                       
                       <p className="text-secondary-700 leading-relaxed">
-                        {feedback.comment}
+                        {feedback.feedback}
                       </p>
                     </div>
                   </div>
                 </div>
-                ))
+                  ))}
+                  
+                  {/* See More Button */}
+                  {hasMoreReviews && !showAllReviews && (
+                    <div className="text-center mt-8">
+                      <button
+                        onClick={() => setShowAllReviews(true)}
+                        className="bg-primary-600 hover:bg-primary-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                      >
+                        See More Reviews ({feedbackData.length - 6} more)
+                      </button>
+                    </div>
+                  )}
+                  
+                  {/* Show Less Button */}
+                  {showAllReviews && (
+                    <div className="text-center mt-8">
+                      <button
+                        onClick={() => setShowAllReviews(false)}
+                        className="bg-secondary-600 hover:bg-secondary-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                      >
+                        Show Less
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

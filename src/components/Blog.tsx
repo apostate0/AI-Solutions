@@ -1,29 +1,44 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { supabase, BlogPost } from '../lib/supabase'
+import SeeMoreModal from './SeeMoreModal'
 
-interface BlogPost {
-  id: number
-  title: string
-  excerpt: string
-  content: string
-  author: string
-  date: string
-  category: string
-  readTime: string
-  image: string
-  tags: string[]
-}
 
 const Blog: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [selectedPost, setSelectedPost] = useState<BlogPost | null>(null)
+  const [blogPosts, setBlogPosts] = useState<BlogPost[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showModal, setShowModal] = useState(false)
 
-  const blogPosts: BlogPost[] = []
+  useEffect(() => {
+    fetchBlogPosts()
+  }, [])
+
+  const fetchBlogPosts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('blog_posts')
+        .select('*')
+        .eq('published', true)
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      setBlogPosts(data || [])
+    } catch (error) {
+      console.error('Error fetching blog posts:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const categories = ['All', 'AI Trends', 'Machine Learning', 'Security', 'Business Strategy', 'NLP', 'AI Ethics']
 
   const filteredPosts = selectedCategory === 'All' 
     ? blogPosts 
     : blogPosts.filter(post => post.category === selectedCategory)
+  
+  const displayedPosts = filteredPosts.slice(0, 6)
+  const hasMore = filteredPosts.length > 6
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
@@ -75,7 +90,12 @@ const Blog: React.FC = () => {
 
         {/* Blog Posts Grid */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredPosts.length === 0 ? (
+          {loading ? (
+            <div className="col-span-3 text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+              <p className="text-secondary-500 mt-4">Loading blog posts...</p>
+            </div>
+          ) : filteredPosts.length === 0 ? (
             <div className="col-span-3 text-center py-12">
               <div className="text-secondary-400 mb-4">
                 <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -86,7 +106,7 @@ const Blog: React.FC = () => {
               <p className="text-secondary-500">Blog posts will be displayed here once published.</p>
             </div>
           ) : (
-            filteredPosts.map((post) => (
+            displayedPosts.map((post) => (
             <article 
               key={post.id}
               className="bg-white border border-secondary-200 rounded-xl overflow-hidden hover:shadow-lg transition-shadow duration-300 cursor-pointer"
@@ -96,7 +116,7 @@ const Blog: React.FC = () => {
               <div className={`h-48 ${post.image} flex items-center justify-center`}>
                 <div className="text-white text-center p-4">
                   <div className="text-sm font-medium mb-2">{post.category}</div>
-                  <div className="text-xs opacity-90">{formatDate(post.date)}</div>
+                  <div className="text-xs opacity-90">{formatDate(post.created_at || '')}</div>
                 </div>
               </div>
 
@@ -104,7 +124,7 @@ const Blog: React.FC = () => {
               <div className="p-6">
                 <div className="flex items-center justify-between text-sm text-secondary-500 mb-3">
                   <span>{post.author}</span>
-                  <span>{post.readTime}</span>
+                  <span>{post.read_time}</span>
                 </div>
 
                 <h3 className="text-xl font-semibold text-secondary-900 mb-3 line-clamp-2">
@@ -132,6 +152,18 @@ const Blog: React.FC = () => {
           )}
         </div>
 
+        {/* See More Button */}
+        {hasMore && (
+          <div className="text-center mt-8">
+            <button
+              onClick={() => setShowModal(true)}
+              className="bg-white text-primary-600 border-2 border-primary-600 hover:bg-primary-600 hover:text-white px-6 py-3 rounded-lg font-semibold transition-colors duration-300"
+            >
+              See More Blog Posts ({filteredPosts.length - 6} more)
+            </button>
+          </div>
+        )}
+
         {/* Blog Post Modal */}
         {selectedPost && (
           <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -152,9 +184,9 @@ const Blog: React.FC = () => {
                   <div className="flex items-center space-x-4 text-sm">
                     <span>By {selectedPost.author}</span>
                     <span>•</span>
-                    <span>{formatDate(selectedPost.date)}</span>
+                    <span>{formatDate(selectedPost.created_at || '')}</span>
                     <span>•</span>
-                    <span>{selectedPost.readTime}</span>
+                    <span>{selectedPost.read_time}</span>
                   </div>
                 </div>
               </div>
@@ -184,6 +216,60 @@ const Blog: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* See More Modal */}
+        <SeeMoreModal
+          isOpen={showModal}
+          onClose={() => setShowModal(false)}
+          title="All Blog Posts"
+        >
+          <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-6">
+            {filteredPosts.map((post) => (
+              <article 
+                key={post.id}
+                className="bg-white border border-secondary-200 rounded-xl overflow-hidden hover:shadow-lg transition-shadow duration-300 cursor-pointer"
+                onClick={() => {
+                  setShowModal(false)
+                  openPost(post)
+                }}
+              >
+                {/* Post Image */}
+                <div className={`h-48 ${post.image} flex items-center justify-center`}>
+                  <div className="text-white text-center p-4">
+                    <div className="text-sm font-medium mb-2">{post.category}</div>
+                    <div className="text-xs opacity-90">{formatDate(post.created_at || '')}</div>
+                  </div>
+                </div>
+
+                {/* Post Content */}
+                <div className="p-6">
+                  <h3 className="text-xl font-semibold text-secondary-900 mb-3 hover:text-primary-600 transition-colors">
+                    {post.title}
+                  </h3>
+                  <p className="text-secondary-600 text-sm mb-4 line-clamp-3">
+                    {post.excerpt}
+                  </p>
+                  
+                  <div className="flex items-center justify-between text-sm text-secondary-500 mb-4">
+                    <span>By {post.author}</span>
+                    <span>{post.read_time}</span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {post.tags.slice(0, 3).map((tag, index) => (
+                      <span 
+                        key={index}
+                        className="bg-primary-100 text-primary-800 text-xs font-medium px-2 py-1 rounded"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </SeeMoreModal>
       </div>
     </section>
   )

@@ -1,32 +1,70 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { supabase, BlogPost } from '../../lib/supabase'
+import { usePagination } from '../../hooks/usePagination'
+import Pagination from '../Pagination'
+import { useToast } from '../ToastContainer'
+import ConfirmationModal from '../ConfirmationModal'
 
-interface BlogPost {
-  id: number
-  title: string
-  excerpt: string
-  content: string
-  author: string
-  date: string
-  category: string
-  readTime: string
-  image: string
-  tags: string[]
-}
 
 const AdminBlogs: React.FC = () => {
+  const { showToast } = useToast()
   const [blogPosts, setBlogPosts] = useState<BlogPost[]>([])
   const [isCreating, setIsCreating] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean
+    blogId: number | null
+    blogTitle: string
+  }>({
+    isOpen: false,
+    blogId: null,
+    blogTitle: ''
+  })
+
+  // Pagination
+  const blogsPerPage = 2
+  const {
+    currentPage,
+    totalPages,
+    paginatedData: paginatedBlogs,
+    goToPage,
+    totalItems
+  } = usePagination({
+    data: blogPosts,
+    itemsPerPage: blogsPerPage
+  })
   const [formData, setFormData] = useState({
     title: '',
     excerpt: '',
     content: '',
     author: 'Sneha Yadav',
     category: 'AI Trends',
-    readTime: '5 min read',
+    read_time: '5 min read',
     image: 'bg-gradient-to-br from-blue-400 to-purple-600',
-    tags: ''
+    tags: '',
+    published: true
   })
+
+  useEffect(() => {
+    fetchBlogPosts()
+  }, [])
+
+  const fetchBlogPosts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('blog_posts')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      setBlogPosts(data || [])
+    } catch (error) {
+      console.error('Error fetching blog posts:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const categories = ['AI Trends', 'Machine Learning', 'Security', 'Business Strategy', 'NLP', 'AI Ethics']
   const imageOptions = [
@@ -38,32 +76,45 @@ const AdminBlogs: React.FC = () => {
     'bg-gradient-to-br from-teal-400 to-green-600'
   ]
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     const tagsArray = formData.tags.split(',').map(t => t.trim()).filter(t => t)
     
-    const blogData: BlogPost = {
-      id: editingId || Date.now(),
+    const blogData = {
       title: formData.title,
       excerpt: formData.excerpt,
       content: formData.content,
       author: formData.author,
-      date: new Date().toISOString().split('T')[0],
       category: formData.category,
-      readTime: formData.readTime,
+      read_time: formData.read_time,
       image: formData.image,
-      tags: tagsArray
+      tags: tagsArray,
+      published: formData.published
     }
 
-    if (editingId) {
-      setBlogPosts(prev => prev.map(post => post.id === editingId ? blogData : post))
-      setEditingId(null)
-    } else {
-      setBlogPosts(prev => [...prev, blogData])
+    try {
+      if (editingId) {
+        const { error } = await supabase
+          .from('blog_posts')
+          .update(blogData)
+          .eq('id', editingId)
+        
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('blog_posts')
+          .insert([blogData])
+        
+        if (error) throw error
+      }
+      
+      await fetchBlogPosts()
+      resetForm()
+    } catch (error) {
+      console.error('Error saving blog post:', error)
+      alert('Error saving blog post. Please try again.')
     }
-
-    resetForm()
   }
 
   const resetForm = () => {
@@ -73,9 +124,10 @@ const AdminBlogs: React.FC = () => {
       content: '',
       author: 'Sneha Yadav',
       category: 'AI Trends',
-      readTime: '5 min read',
+      read_time: '5 min read',
       image: 'bg-gradient-to-br from-blue-400 to-purple-600',
-      tags: ''
+      tags: '',
+      published: true
     })
     setIsCreating(false)
     setEditingId(null)
@@ -88,18 +140,62 @@ const AdminBlogs: React.FC = () => {
       content: post.content,
       author: post.author,
       category: post.category,
-      readTime: post.readTime,
+      read_time: post.read_time,
       image: post.image,
-      tags: post.tags.join(', ')
+      tags: post.tags.join(', '),
+      published: post.published
     })
-    setEditingId(post.id)
+    setEditingId(post.id || null)
     setIsCreating(true)
   }
 
-  const handleDelete = (id: number) => {
-    if (confirm('Are you sure you want to delete this blog post?')) {
-      setBlogPosts(prev => prev.filter(post => post.id !== id))
+  const handleDeleteClick = (post: BlogPost) => {
+    setDeleteConfirmation({
+      isOpen: true,
+      blogId: post.id!,
+      blogTitle: post.title
+    })
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirmation.blogId) return
+
+    try {
+      const { error } = await supabase
+        .from('blog_posts')
+        .delete()
+        .eq('id', deleteConfirmation.blogId)
+      
+      if (error) throw error
+      await fetchBlogPosts()
+      
+      showToast({
+        type: 'success',
+        title: 'Blog Post Deleted',
+        message: 'Blog post has been successfully deleted.'
+      })
+    } catch (error) {
+      console.error('Error deleting blog post:', error)
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: 'Failed to delete blog post. Please try again.'
+      })
+    } finally {
+      setDeleteConfirmation({
+        isOpen: false,
+        blogId: null,
+        blogTitle: ''
+      })
     }
+  }
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirmation({
+      isOpen: false,
+      blogId: null,
+      blogTitle: ''
+    })
   }
 
   return (
@@ -199,8 +295,8 @@ const AdminBlogs: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  value={formData.readTime}
-                  onChange={(e) => setFormData(prev => ({ ...prev, readTime: e.target.value }))}
+                  value={formData.read_time}
+                  onChange={(e) => setFormData(prev => ({ ...prev, read_time: e.target.value }))}
                   placeholder="5 min read"
                   className="w-full px-3 py-2 border border-secondary-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   required
@@ -239,6 +335,18 @@ const AdminBlogs: React.FC = () => {
               </div>
             </div>
 
+            <div>
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={formData.published}
+                  onChange={(e) => setFormData(prev => ({ ...prev, published: e.target.checked }))}
+                  className="rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+                />
+                <span className="text-sm font-medium text-secondary-700">Published</span>
+              </label>
+            </div>
+
             <div className="flex space-x-3">
               <button type="submit" className="btn-primary">
                 {editingId ? 'Update Post' : 'Create Post'}
@@ -263,7 +371,12 @@ const AdminBlogs: React.FC = () => {
           </h4>
         </div>
         
-        {blogPosts.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+            <p className="text-secondary-500">Loading blog posts...</p>
+          </div>
+        ) : blogPosts.length === 0 ? (
           <div className="text-center py-12">
             <div className="text-secondary-400 mb-4">
               <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -274,8 +387,9 @@ const AdminBlogs: React.FC = () => {
             <p className="text-secondary-500">Create your first blog post to get started.</p>
           </div>
         ) : (
-          <div className="divide-y divide-secondary-200">
-            {blogPosts.map((post) => (
+          <>
+            <div className="divide-y divide-secondary-200">
+              {paginatedBlogs.map((post) => (
               <div key={post.id} className="p-6">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -286,7 +400,7 @@ const AdminBlogs: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-secondary-600 text-sm mb-2">
-                      By {post.author} • {post.date} • {post.readTime}
+                      By {post.author} • {new Date(post.created_at || '').toLocaleDateString()} • {post.read_time}
                     </p>
                     <p className="text-secondary-700 text-sm mb-3 line-clamp-2">{post.excerpt}</p>
                     <div className="flex flex-wrap gap-1">
@@ -308,7 +422,7 @@ const AdminBlogs: React.FC = () => {
                       Edit
                     </button>
                     <button
-                      onClick={() => handleDelete(post.id)}
+                      onClick={() => handleDeleteClick(post)}
                       className="text-red-600 hover:text-red-700 font-medium text-sm"
                     >
                       Delete
@@ -316,9 +430,32 @@ const AdminBlogs: React.FC = () => {
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            
+            {totalPages > 1 && (
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={goToPage}
+                totalItems={totalItems}
+                itemsPerPage={blogsPerPage}
+              />
+            )}
+          </>
         )}
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={deleteConfirmation.isOpen}
+        onClose={handleDeleteCancel}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Blog Post"
+        message={`Are you sure you want to delete "${deleteConfirmation.blogTitle}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="danger"
+      />
       </div>
     </div>
   )

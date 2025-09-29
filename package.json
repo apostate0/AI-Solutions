@@ -1,8 +1,11 @@
 {
   "name": "ai-solutions-website",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "description": "Professional website and admin platform for AI Solutions consulting firm",
+  "author": "Sneha Yadav <snehasama7@gmail.com>",
+  "keywords": ["ai", "consulting", "react", "typescript", "supabase", "admin-panel"],
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

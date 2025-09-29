@@ -6,6 +6,7 @@ import Services from './components/Services'
 import CaseStudies from './components/CaseStudies'
 import Testimonials from './components/Testimonials'
 import Blog from './components/Blog'
+import Events from './components/Events'
 import FeedbackRatings from './components/FeedbackRatings'
 import Contact from './components/Contact'
 import Footer from './components/Footer'
@@ -30,6 +31,7 @@ const HomePage = () => (
       <CaseStudies />
       <Testimonials />
       <Blog />
+      <Events />
       <FeedbackRatings />
       <Contact />
     </main>

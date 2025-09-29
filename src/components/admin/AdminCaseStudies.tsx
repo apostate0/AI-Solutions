@@ -1,22 +1,51 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { supabase, type CaseStudy } from '../../lib/supabase'
+import { usePagination } from '../../hooks/usePagination'
+import Pagination from '../Pagination'
+import { useToast } from '../ToastContainer'
+import ConfirmationModal from '../ConfirmationModal'
 
-interface CaseStudy {
-  id: number
+interface FormData {
   title: string
   client: string
   industry: string
   challenge: string
   solution: string
-  results: string[]
-  technologies: string[]
+  results: string
+  technologies: string
   image: string
+  published: boolean
 }
 
 const AdminCaseStudies: React.FC = () => {
+  const { showToast } = useToast()
   const [caseStudies, setCaseStudies] = useState<CaseStudy[]>([])
+  const [loading, setLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [formData, setFormData] = useState({
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean
+    caseStudyId: number | null
+    caseStudyTitle: string
+  }>({
+    isOpen: false,
+    caseStudyId: null,
+    caseStudyTitle: ''
+  })
+
+  // Pagination
+  const caseStudiesPerPage = 2
+  const {
+    currentPage,
+    totalPages,
+    paginatedData: paginatedCaseStudies,
+    goToPage,
+    totalItems
+  } = usePagination({
+    data: caseStudies,
+    itemsPerPage: caseStudiesPerPage
+  })
+  const [formData, setFormData] = useState<FormData>({
     title: '',
     client: '',
     industry: '',
@@ -24,8 +53,29 @@ const AdminCaseStudies: React.FC = () => {
     solution: '',
     results: '',
     technologies: '',
-    image: 'bg-gradient-to-br from-blue-400 to-purple-600'
+    image: 'bg-gradient-to-br from-blue-400 to-purple-600',
+    published: true
   })
+
+  useEffect(() => {
+    fetchCaseStudies()
+  }, [])
+
+  const fetchCaseStudies = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('case_studies')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      setCaseStudies(data || [])
+    } catch (error) {
+      console.error('Error fetching case studies:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const imageOptions = [
     'bg-gradient-to-br from-blue-400 to-purple-600',
@@ -36,14 +86,13 @@ const AdminCaseStudies: React.FC = () => {
     'bg-gradient-to-br from-cyan-400 to-blue-600'
   ]
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     const resultsArray = formData.results.split('\n').filter(r => r.trim())
     const technologiesArray = formData.technologies.split(',').map(t => t.trim()).filter(t => t)
     
-    const caseStudyData: CaseStudy = {
-      id: editingId || Date.now(),
+    const caseStudyData = {
       title: formData.title,
       client: formData.client,
       industry: formData.industry,
@@ -51,17 +100,32 @@ const AdminCaseStudies: React.FC = () => {
       solution: formData.solution,
       results: resultsArray,
       technologies: technologiesArray,
-      image: formData.image
+      image: formData.image,
+      published: formData.published
     }
 
-    if (editingId) {
-      setCaseStudies(prev => prev.map(cs => cs.id === editingId ? caseStudyData : cs))
-      setEditingId(null)
-    } else {
-      setCaseStudies(prev => [...prev, caseStudyData])
+    try {
+      if (editingId) {
+        const { error } = await supabase
+          .from('case_studies')
+          .update(caseStudyData)
+          .eq('id', editingId)
+        
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('case_studies')
+          .insert([caseStudyData])
+        
+        if (error) throw error
+      }
+      
+      await fetchCaseStudies()
+      resetForm()
+    } catch (error) {
+      console.error('Error saving case study:', error)
+      alert('Error saving case study. Please try again.')
     }
-
-    resetForm()
   }
 
   const resetForm = () => {
@@ -73,7 +137,8 @@ const AdminCaseStudies: React.FC = () => {
       solution: '',
       results: '',
       technologies: '',
-      image: 'bg-gradient-to-br from-blue-400 to-purple-600'
+      image: 'bg-gradient-to-br from-blue-400 to-purple-600',
+      published: true
     })
     setIsCreating(false)
     setEditingId(null)
@@ -88,16 +153,60 @@ const AdminCaseStudies: React.FC = () => {
       solution: caseStudy.solution,
       results: caseStudy.results.join('\n'),
       technologies: caseStudy.technologies.join(', '),
-      image: caseStudy.image
+      image: caseStudy.image,
+      published: caseStudy.published
     })
-    setEditingId(caseStudy.id)
+    setEditingId(caseStudy.id || null)
     setIsCreating(true)
   }
 
-  const handleDelete = (id: number) => {
-    if (confirm('Are you sure you want to delete this case study?')) {
-      setCaseStudies(prev => prev.filter(cs => cs.id !== id))
+  const handleDeleteClick = (caseStudy: CaseStudy) => {
+    setDeleteConfirmation({
+      isOpen: true,
+      caseStudyId: caseStudy.id!,
+      caseStudyTitle: caseStudy.title
+    })
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirmation.caseStudyId) return
+
+    try {
+      const { error } = await supabase
+        .from('case_studies')
+        .delete()
+        .eq('id', deleteConfirmation.caseStudyId)
+      
+      if (error) throw error
+      await fetchCaseStudies()
+      
+      showToast({
+        type: 'success',
+        title: 'Case Study Deleted',
+        message: 'Case study has been successfully deleted.'
+      })
+    } catch (error) {
+      console.error('Error deleting case study:', error)
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: 'Failed to delete case study. Please try again.'
+      })
+    } finally {
+      setDeleteConfirmation({
+        isOpen: false,
+        caseStudyId: null,
+        caseStudyTitle: ''
+      })
     }
+  }
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirmation({
+      isOpen: false,
+      caseStudyId: null,
+      caseStudyTitle: ''
+    })
   }
 
   return (
@@ -236,6 +345,18 @@ const AdminCaseStudies: React.FC = () => {
               </div>
             </div>
 
+            <div>
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={formData.published}
+                  onChange={(e) => setFormData(prev => ({ ...prev, published: e.target.checked }))}
+                  className="rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+                />
+                <span className="text-sm font-medium text-secondary-700">Published</span>
+              </label>
+            </div>
+
             <div className="flex space-x-3">
               <button type="submit" className="btn-primary">
                 {editingId ? 'Update Case Study' : 'Create Case Study'}
@@ -260,7 +381,12 @@ const AdminCaseStudies: React.FC = () => {
           </h4>
         </div>
         
-        {caseStudies.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+            <p className="text-secondary-500">Loading case studies...</p>
+          </div>
+        ) : caseStudies.length === 0 ? (
           <div className="text-center py-12">
             <div className="text-secondary-400 mb-4">
               <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -271,8 +397,9 @@ const AdminCaseStudies: React.FC = () => {
             <p className="text-secondary-500">Create your first case study to get started.</p>
           </div>
         ) : (
-          <div className="divide-y divide-secondary-200">
-            {caseStudies.map((caseStudy) => (
+          <>
+            <div className="divide-y divide-secondary-200">
+              {paginatedCaseStudies.map((caseStudy) => (
               <div key={caseStudy.id} className="p-6">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -303,7 +430,7 @@ const AdminCaseStudies: React.FC = () => {
                       Edit
                     </button>
                     <button
-                      onClick={() => handleDelete(caseStudy.id)}
+                      onClick={() => handleDeleteClick(caseStudy)}
                       className="text-red-600 hover:text-red-700 font-medium text-sm"
                     >
                       Delete
@@ -311,9 +438,32 @@ const AdminCaseStudies: React.FC = () => {
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            
+            {totalPages > 1 && (
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={goToPage}
+                totalItems={totalItems}
+                itemsPerPage={caseStudiesPerPage}
+              />
+            )}
+          </>
         )}
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={deleteConfirmation.isOpen}
+        onClose={handleDeleteCancel}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Case Study"
+        message={`Are you sure you want to delete "${deleteConfirmation.caseStudyTitle}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="danger"
+      />
       </div>
     </div>
   )

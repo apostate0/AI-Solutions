@@ -1,5 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useToast } from '../ToastContainer'
+import { usePagination } from '../../hooks/usePagination'
+import Pagination from '../Pagination'
 
 interface FeedbackSubmission {
   id: number
@@ -16,10 +19,63 @@ interface FeedbackSubmission {
 }
 
 const AdminTestimonials: React.FC = () => {
+  const { showToast } = useToast()
   const [error, setError] = useState<string | null>(null)
   const [showTestimonialsModal, setShowTestimonialsModal] = useState(false)
   const [availableReviews, setAvailableReviews] = useState<FeedbackSubmission[]>([])
   const [loadingReviews, setLoadingReviews] = useState(false)
+  const [testimonials, setTestimonials] = useState<FeedbackSubmission[]>([])
+  const [loadingTestimonials, setLoadingTestimonials] = useState(true)
+
+  // Pagination for testimonials
+  const testimonialsPerPage = 2
+  const {
+    currentPage: testimonialsPage,
+    totalPages: testimonialsTotalPages,
+    paginatedData: paginatedTestimonials,
+    goToPage: goToTestimonialsPage,
+    totalItems: totalTestimonials
+  } = usePagination({
+    data: testimonials,
+    itemsPerPage: testimonialsPerPage
+  })
+
+  // Pagination for available reviews
+  const reviewsPerPage = 10
+  const {
+    currentPage: reviewsPage,
+    totalPages: reviewsTotalPages,
+    paginatedData: paginatedReviews,
+    goToPage: goToReviewsPage,
+    totalItems: totalReviews
+  } = usePagination({
+    data: availableReviews,
+    itemsPerPage: reviewsPerPage
+  })
+
+  useEffect(() => {
+    fetchTestimonials()
+  }, [])
+
+  const fetchTestimonials = async () => {
+    try {
+      setLoadingTestimonials(true)
+      const { data, error } = await supabase
+        .from('feedback_submissions')
+        .select('*')
+        .eq('is_testimonial', true)
+        .eq('published', true)
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      setTestimonials(data || [])
+    } catch (err) {
+      console.error('Error fetching testimonials:', err)
+      setError('Failed to load testimonials. Please try again later.')
+    } finally {
+      setLoadingTestimonials(false)
+    }
+  }
 
   const handleSelectTestimonial = async (feedback: FeedbackSubmission) => {
     try {
@@ -30,13 +86,48 @@ const AdminTestimonials: React.FC = () => {
       
       if (error) throw error
       
-      // Remove from available reviews
+      // Remove from available reviews and refresh testimonials
       setAvailableReviews(prev => prev.filter(item => item.id !== feedback.id))
+      await fetchTestimonials()
       
-      alert('Review selected as testimonial successfully!')
+      showToast({
+        type: 'success',
+        title: 'Testimonial Added',
+        message: 'Review has been successfully featured as a testimonial!'
+      })
     } catch (err) {
       console.error('Error selecting testimonial:', err)
-      alert('Failed to select testimonial. Please try again.')
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: 'Failed to select testimonial. Please try again.'
+      })
+    }
+  }
+
+  const handleRemoveTestimonial = async (testimonialId: number) => {
+    try {
+      const { error } = await supabase
+        .from('feedback_submissions')
+        .update({ is_testimonial: false, published: false })
+        .eq('id', testimonialId)
+      
+      if (error) throw error
+      
+      await fetchTestimonials()
+      
+      showToast({
+        type: 'success',
+        title: 'Testimonial Removed',
+        message: 'Testimonial has been removed from the website.'
+      })
+    } catch (err) {
+      console.error('Error removing testimonial:', err)
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: 'Failed to remove testimonial. Please try again.'
+      })
     }
   }
 
@@ -100,26 +191,98 @@ const AdminTestimonials: React.FC = () => {
       )}
 
 
-      {/* Add Testimonials Section */}
+      {/* Featured Testimonials Section */}
       <div className="bg-white rounded-lg shadow-sm border">
-        <div className="p-6 border-b border-gray-200">
-          <h4 className="text-lg font-medium text-secondary-900">Featured Testimonials</h4>
-          <p className="text-sm text-secondary-500">These testimonials are currently displayed on the website</p>
-        </div>
-        
-        <div className="p-6 text-center">
+        <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+          <div>
+            <h4 className="text-lg font-medium text-secondary-900">Featured Testimonials</h4>
+            <p className="text-sm text-secondary-500">These testimonials are currently displayed on the website</p>
+          </div>
           <button
             onClick={() => {
               setShowTestimonialsModal(true)
               fetchAvailableReviews()
             }}
-            className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors"
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors"
           >
-            <svg className="-ml-1 mr-3 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
             </svg>
-            Add Testimonials
+            Add Testimonial
           </button>
+        </div>
+        
+        <div className="p-6">
+          {loadingTestimonials ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p className="text-secondary-500">Loading testimonials...</p>
+            </div>
+          ) : testimonials.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-secondary-100">
+                <svg className="h-6 w-6 text-secondary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10m0 0V6a2 2 0 00-2-2H9a2 2 0 00-2 2v2m0 0v10a2 2 0 002 2h8a2 2 0 002-2V8M9 12h6" />
+                </svg>
+              </div>
+              <h3 className="mt-2 text-lg font-medium text-secondary-900">No testimonials yet</h3>
+              <p className="mt-1 text-sm text-secondary-500">Start by adding some testimonials from customer feedback.</p>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-4">
+                {paginatedTestimonials.map((testimonial) => (
+                  <div key={testimonial.id} className="bg-secondary-50 rounded-lg p-6 border border-secondary-200">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start space-x-4 flex-1">
+                        <div className="flex-shrink-0 w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 font-medium">
+                          {generateAvatar(testimonial.name)}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <h5 className="text-sm font-medium text-secondary-900">
+                                {testimonial.name}
+                              </h5>
+                              <p className="text-sm text-secondary-500">
+                                {testimonial.position && `${testimonial.position}, `}
+                                {testimonial.company}
+                              </p>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <div className="flex">
+                                {renderStars(testimonial.rating)}
+                              </div>
+                            </div>
+                          </div>
+                          <p className="text-secondary-700 mb-3">"{testimonial.feedback}"</p>
+                          <p className="text-xs text-secondary-400">
+                            Featured on {new Date(testimonial.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveTestimonial(testimonial.id)}
+                        className="ml-4 inline-flex items-center px-3 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              {testimonialsTotalPages > 1 && (
+                <Pagination
+                  currentPage={testimonialsPage}
+                  totalPages={testimonialsTotalPages}
+                  onPageChange={goToTestimonialsPage}
+                  totalItems={totalTestimonials}
+                  itemsPerPage={testimonialsPerPage}
+                />
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -168,49 +331,63 @@ const AdminTestimonials: React.FC = () => {
                     <p className="mt-1 text-sm text-gray-500">Only 4 and 5-star reviews that aren't already testimonials can be selected.</p>
                   </div>
                 ) : (
-                  <div className="max-h-[70vh] overflow-y-auto">
-                    <div className="space-y-4">
-                      {availableReviews.map((review) => (
-                        <div key={review.id} className="bg-gray-50 rounded-lg p-6 border border-gray-200 hover:border-primary-300 transition-colors">
-                          <div className="flex items-start justify-between">
-                            <div className="flex items-start space-x-4 flex-1">
-                              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 font-medium">
-                                {generateAvatar(review.name)}
-                              </div>
-                              <div className="flex-1">
-                                <div className="flex items-center justify-between mb-2">
-                                  <div>
-                                    <h5 className="text-sm font-medium text-secondary-900">
-                                      {review.name}
-                                    </h5>
-                                    <p className="text-sm text-secondary-500">
-                                      {review.position && `${review.position}, `}
-                                      {review.company}
-                                    </p>
-                                  </div>
-                                  <div className="flex items-center space-x-2">
-                                    <div className="flex">
-                                      {renderStars(review.rating)}
+                  <>
+                    <div className="max-h-[60vh] overflow-y-auto">
+                      <div className="space-y-4">
+                        {paginatedReviews.map((review) => (
+                          <div key={review.id} className="bg-gray-50 rounded-lg p-6 border border-gray-200 hover:border-primary-300 transition-colors">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-start space-x-4 flex-1">
+                                <div className="flex-shrink-0 w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 font-medium">
+                                  {generateAvatar(review.name)}
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div>
+                                      <h5 className="text-sm font-medium text-secondary-900">
+                                        {review.name}
+                                      </h5>
+                                      <p className="text-sm text-secondary-500">
+                                        {review.position && `${review.position}, `}
+                                        {review.company}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                      <div className="flex">
+                                        {renderStars(review.rating)}
+                                      </div>
                                     </div>
                                   </div>
+                                  <p className="text-secondary-700 mb-3">"{review.feedback}"</p>
+                                  <p className="text-xs text-gray-400">
+                                    {new Date(review.created_at).toLocaleDateString()}
+                                  </p>
                                 </div>
-                                <p className="text-secondary-700 mb-3">"{review.feedback}"</p>
-                                <p className="text-xs text-gray-400">
-                                  {new Date(review.created_at).toLocaleDateString()}
-                                </p>
                               </div>
+                              <button
+                                onClick={() => handleSelectTestimonial(review)}
+                                className="ml-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                              >
+                                Select as Testimonial
+                              </button>
                             </div>
-                            <button
-                              onClick={() => handleSelectTestimonial(review)}
-                              className="ml-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-                            >
-                              Select as Testimonial
-                            </button>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                    
+                    {reviewsTotalPages > 1 && (
+                      <div className="mt-4">
+                        <Pagination
+                          currentPage={reviewsPage}
+                          totalPages={reviewsTotalPages}
+                          onPageChange={goToReviewsPage}
+                          totalItems={totalReviews}
+                          itemsPerPage={reviewsPerPage}
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
